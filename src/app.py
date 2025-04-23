@@ -104,6 +104,7 @@ def ask_question(question: str) -> str:
 
 
 # Gradio Web UI
+gr.Markdown("# Gra Test v0.1 - Readin PDFs and Ask Questions")
 gr.Interface(
     fn=ask_question,
     inputs=gr.Textbox(
@@ -112,5 +113,5 @@ gr.Interface(
         label="Question"
     ),
     outputs="text",
-    title="📄 PDF Q&A – Local AI Stack (Haystack + Qdrant + Ollama)"
+    title="📄 Gra Test v0.1 Read in PDFs and Ask Questions – Haystack + Qdrant + Ollama"
 ).launch(server_name="0.0.0.0", server_port=7860)
