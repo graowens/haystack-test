@@ -1,0 +1,4 @@
+haystack-ai
+pdfplumber
+gradio
+ollama-haystack

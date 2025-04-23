@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  ollama:
+    image: ollama/ollama
+    container_name: gra_ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+
+  haystack-app:
+    build:
+      context: .
+      dockerfile: tools/docker/python/Dockerfile
+    container_name: gra_haystack
+    ports:
+      - "7860:7860"
+    volumes:
+      - ./src:/app
+    depends_on:
+      - ollama
+    restart: unless-stopped
+#    entrypoint: ["sleep", "infinity"]
+
+volumes:
+  ollama_data:
