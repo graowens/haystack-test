@@ -1,4 +1,8 @@
-haystack-ai
+haystack-ai==2.13.0
+qdrant-haystack
 pdfplumber
+pdf2image
+pytesseract
 gradio
-ollama-haystack
+sentence-transformers
+requests

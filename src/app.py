@@ -1,19 +1,34 @@
-from haystack import Document
-from haystack.document_stores.in_memory import InMemoryDocumentStore
-from haystack.components.retrievers.in_memory import InMemoryBM25Retriever
+from haystack.dataclasses import Document
+from haystack.components.embedders import SentenceTransformersDocumentEmbedder, SentenceTransformersTextEmbedder
+from haystack_integrations.document_stores.qdrant import QdrantDocumentStore
+from haystack_integrations.components.retrievers.qdrant import QdrantEmbeddingRetriever
 from haystack.components.builders import PromptBuilder
 
-import pdfplumber
 import os
 import gradio as gr
 import requests
+import pytesseract
+import pdfplumber
+from pdf2image import convert_from_path
 
-# Load PDF and extract text
+# Load PDF and extract text with OCR fallback
 def load_pdf_text(pdf_path):
-    with pdfplumber.open(pdf_path) as pdf:
-        return "\n".join(page.extract_text() for page in pdf.pages if page.extract_text())
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            full_text = "\n".join(page.extract_text() or '' for page in pdf.pages)
+        if full_text.strip():
+            return full_text.strip()
+    except Exception as e:
+        print(f"pdfplumber failed: {e}")
 
-# Load all PDFs
+    print(f"OCR fallback for: {pdf_path}")
+    images = convert_from_path(pdf_path)
+    text = ""
+    for image in images:
+        text += pytesseract.image_to_string(image) + "\n"
+    return text.strip()
+
+# Load and parse all PDFs
 pdf_dir = "./pdfs"
 documents = []
 for filename in os.listdir(pdf_dir):
@@ -21,12 +36,32 @@ for filename in os.listdir(pdf_dir):
         content = load_pdf_text(os.path.join(pdf_dir, filename))
         documents.append(Document(content=content, meta={"source": filename}))
 
-# Set up Haystack components
-document_store = InMemoryDocumentStore()
-document_store.write_documents(documents)
+# Setup Qdrant document store
+document_store = QdrantDocumentStore(
+    host="qdrant",
+    port=6333,
+    embedding_dim=384,
+    index="pdf_docs",
+    similarity="cosine"
+)
 
-retriever = InMemoryBM25Retriever(document_store=document_store)
+# Create document embedder and embed documents
+doc_embedder = SentenceTransformersDocumentEmbedder(model="sentence-transformers/all-MiniLM-L6-v2")
+doc_embedder.warm_up()
+result = doc_embedder.run(documents)
+documents = result["documents"]
 
+# Write documents to Qdrant
+document_store.write_documents(documents, policy="overwrite")
+
+# Setup retriever (query embedding will be done manually)
+retriever = QdrantEmbeddingRetriever(document_store=document_store)
+
+# Query embedder (we use this per question)
+query_embedder = SentenceTransformersTextEmbedder(model="sentence-transformers/all-MiniLM-L6-v2")
+query_embedder.warm_up()
+
+# Prompt template for question answering
 template = """
 Given the following information, answer the question.
 
@@ -38,9 +73,10 @@ Context:
 Question: {{question}}
 Answer:
 """
-prompt_builder = PromptBuilder(template=template)
+prompt_builder = PromptBuilder(template=template, required_variables=["documents", "question"])
 
-# Ollama call
+
+# Function to call Ollama's Mistral model
 def call_ollama_mistral(prompt: str) -> str:
     response = requests.post(
         "http://ollama:11434/api/generate",
@@ -51,23 +87,30 @@ def call_ollama_mistral(prompt: str) -> str:
             "stream": False
         }
     )
-    return response.json()["response"]
+    return response.json().get("response", "No response received from Ollama.")
 
-# Ask question pipeline
+# Full pipeline: embed query -> retrieve -> prompt -> LLM
 def ask_question(question: str) -> str:
-    retrieved_docs = retriever.run(query=question)["documents"]
+    # Embed the question directly as a raw string (no dict)
+    embedding_result = query_embedder.run(question)
+    query_embedding = embedding_result["embedding"]
+
+    # Retrieve documents from Qdrant
+    retrieved_docs = retriever.run(query_embedding=query_embedding)["documents"]
+
+    # Build prompt and call the model
     prompt = prompt_builder.run(documents=retrieved_docs, question=question)["prompt"]
     return call_ollama_mistral(prompt)
 
-# Gradio UI
-gr.Markdown("# Law Document Concept Prototype v0.1")
+
+# Gradio Web UI
 gr.Interface(
     fn=ask_question,
     inputs=gr.Textbox(
         lines=2,
-        placeholder="Ask something about your PDF lad...",
-        label="Question lad?"
+        placeholder="Ask something about your PDFs...",
+        label="Question"
     ),
     outputs="text",
-    title="PDF QA (Haystack + Ollama)"
+    title="📄 PDF Q&A – Local AI Stack (Haystack + Qdrant + Ollama)"
 ).launch(server_name="0.0.0.0", server_port=7860)
