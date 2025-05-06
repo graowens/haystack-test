@@ -132,6 +132,15 @@ Candidates:
 
     return "\n".join(results)
 
+# Image description from OCR and LLM
+def describe_image(image_path):
+    try:
+        text = pytesseract.image_to_string(Image.open(image_path))
+        prompt = f"Provide a list of 20 keywords describing the image followed by a detailed description of the image:\n\n{text}"
+        return call_ollama_mistral(prompt)
+    except Exception as e:
+        return f"Failed to process image: {e}"
+
 # Gradio UI
 with gr.Blocks() as demo:
     gr.Markdown("# Gra Test v0.2 – Ask or Extract Emails (Hybrid)")
@@ -145,6 +154,15 @@ with gr.Blocks() as demo:
 
     ask_btn.click(fn=ask_question, inputs=question_box, outputs=answer_box)
     extract_btn.click(fn=extract_names_and_emails, inputs=[], outputs=answer_box)
+
+    gr.Markdown("## Upload an Image to Get a Description")
+
+    with gr.Row():
+        image_input = gr.Image(type="filepath", label="Upload an Image")
+        image_description = gr.Textbox(label="Image Description")
+
+    image_btn = gr.Button("Describe Image")
+    image_btn.click(fn=describe_image, inputs=image_input, outputs=image_description)
 
     demo.launch(server_name="0.0.0.0", server_port=7860)
 
