@@ -135,11 +135,19 @@ Candidates:
 # Image description from OCR and LLM
 def describe_image(image_path):
     try:
-        text = pytesseract.image_to_string(Image.open(image_path))
-        prompt = f"Provide a list of 20 keywords describing the image followed by a detailed description of the image:\n\n{text}"
+        # Ensure it's a supported format and in RGB mode
+        with Image.open(image_path) as img:
+            img = img.convert("RGB")
+            text = pytesseract.image_to_string(img)
+
+        if not text.strip():
+            text = "No visible text found. Describe the image based on its visual features."
+
+        prompt = f"Describe this image based on the following extracted text and any visual clues you can infer:\n\n{text}"
         return call_ollama_mistral(prompt)
+
     except Exception as e:
-        return f"Failed to process image: {e}"
+        return f"Failed to process image: {str(e)}"
 
 # Gradio UI
 with gr.Blocks() as demo:
